@@ -1,5 +1,5 @@
-/*exec: ./packet_mmap -g eth0 -c 100
- * use tcpdump -i eth0 ether dst ff:ff:ff:ff:ff:ff or ether src 00:00:00:00:00:00  -nnv -s0 -w tx_test.pcap*/
+/*bash# ./packet_mmap -g eth0 -c 200000 -t 
+  bash# tcpdump -i eth0 ether dst ff:ff:ff:ff:ff:ff or ether src 00:00:00:00:00:00  -nnv -s0 -w tx_test.pcap*/
 #include <stdio.h>
 #include <unistd.h>
 #include <stdlib.h>
@@ -517,10 +517,11 @@ void *task_fill(void *arg) {
 	  {
 	  case TP_STATUS_AVAILABLE:
 	    /* fill data in buffer */
-	    if(first_loop) {
         char payload[32];
-        sprintf(payload, "hello_%d", i);
+        sprintf(payload, "hello_%ld", i);
+	//printf("payload:%s, i:%ld\n",payload,i);
         int len=strlen(payload);
+	//    if(first_loop) {
         struct iphdr *ip = (struct iphdr *) (data);
         struct udphdr *udp = (struct udphdr *) (((char *) ip) + sizeof(struct iphdr));
         char *payload_ptr = ((char *) udp) + sizeof(*udp);
@@ -528,12 +529,12 @@ void *task_fill(void *arg) {
         packet_len = (short) len + sizeof (*ip) + sizeof (*udp);
         //iconstruct_ether(ether);
         construct_ip(ip, dest, packet_len);
-        construct_udp(udp, dest->sin_port, packet_len - sizeof(struct iphdr));
+        construct_udp(udp, 47890 /*dest->sin_port*/, packet_len - sizeof(struct iphdr));
 	// Calculate the checksum for integrity
 	//ip->check = csum((unsigned short *)ip, packet_len);
 	      //for(j=0;j<c_packet_sz;j++)
 		//data[j] = j;
-	    }
+	  //  }
 	    loop = 0;
 	    break;
  
@@ -556,7 +557,7 @@ void *task_fill(void *arg) {
 	  i_index = 0;
 	  first_loop = 0;
 	}
-      printf("packet_len:%d\n", packet_len); 
+      //printf("packet_len:%d\n", packet_len); 
       /* update packet len */
       ps_header->tp_len = packet_len;//c_packet_sz;
       /* set header flag to USER (trigs xmit)*/
