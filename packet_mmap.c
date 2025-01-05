@@ -1,5 +1,9 @@
 /*bash# ./packet_mmap -g eth0 -c 200000 -t 
-  bash# tcpdump -i eth0 ether dst ff:ff:ff:ff:ff:ff or ether src 00:00:00:00:00:00  -nnv -s0 -w tx_test.pcap*/
+  bash# tcpdump -i eth0 ether dst ff:ff:ff:ff:ff:ff or ether src 00:00:00:00:00:00  -nnv -s0 -w tx_test.pcap
+  
+refer: https://stackoverflow.com/questions/43193889/sending-data-with-packet-mmap-and-packet-tx-ring-is-slower-than-normal-withou
+  
+  */
 #include <stdio.h>
 #include <unistd.h>
 #include <stdlib.h>
