@@ -1,3 +1,5 @@
+/*exec: ./packet_mmap -g eth0 -c 100
+ * use tcpdump -i eth0 ether dst ff:ff:ff:ff:ff:ff or ether src 00:00:00:00:00:00  -nnv -s0 -w tx_test.pcap*/
 #include <stdio.h>
 #include <unistd.h>
 #include <stdlib.h>
@@ -8,14 +10,11 @@
 #include <fcntl.h>
 #include <string.h>
 #include <sys/mman.h>
-#include <sys/stat.h>
-#include <fcntl.h>
 #include <netinet/in.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <sys/select.h>
-#include <unistd.h>
 #include <sys/ioctl.h>
 #include <net/if.h>
 #include <linux/if_ether.h>
@@ -24,9 +23,15 @@
 #include <pthread.h>
 #include <sys/user.h>
 #include <errno.h>
- 
+#include <net/ethernet.h>
+#include <netinet/ip.h>
+#include <netinet/if_ether.h>
+#include <netinet/udp.h>
+#include <netdb.h> 
+
+
 #define FRAMES 8192
-#define FRAME_SIZE 150
+#define FRAME_SIZE 1500
 
 /* params */
 static char * str_devname= NULL;
@@ -42,7 +47,7 @@ static int mode_dgram    = 0;
 static int mode_thread   = 0;
 static int mode_loss     = 0;
 static int mode_verbose  = 0;
- 
+ struct sockaddr_in src_addr;
 /* globals */
 volatile int fd_socket;
 volatile int data_offset = 0;
@@ -53,7 +58,69 @@ struct tpacket_req s_packet_req;
  
 void *task_send(void *arg);
 void *task_fill(void *arg);
- 
+
+
+
+struct sockaddr_in get_if_ip(char *dev)
+{
+        struct ifreq if_ip;
+        memset(&if_ip, 0, sizeof(struct ifreq));
+        if_ip.ifr_addr.sa_family = AF_INET;
+        strncpy(if_ip.ifr_name, dev, IFNAMSIZ - 1);
+        int sock = socket(AF_INET, SOCK_DGRAM, 0);
+        if (sock < 0) {
+                perror("socket");
+                exit(1);
+        }
+        if (ioctl(sock, SIOCGIFADDR, &if_ip) < 0) {
+                perror("SIOCGIFADDR");
+                exit(1);
+        }
+        close(sock);
+        return *(struct sockaddr_in *) &if_ip.ifr_addr;
+}
+
+
+struct iphdr *construct_ip(struct iphdr *ip,
+		const struct sockaddr_in *dest, ssize_t packet_len)
+{
+	memset(ip, 0, sizeof (*ip));
+	ip->ihl = 5;
+	ip->version = 4;
+	ip->tos = 16; // Low delay
+	ip->tot_len = htons(packet_len);
+	ip->id = htons(54321);
+	ip->ttl = 64; // hops
+	ip->protocol = 17; // UDP
+	// Source IP address, can use spoofed address here!!!
+	ip->saddr = src_addr.sin_addr.s_addr;
+	// The destination IP address
+	ip->daddr = dest->sin_addr.s_addr;
+	ip->frag_off |= htons(IP_DF);
+	return ip;
+}
+
+struct udphdr *construct_udp(struct udphdr *udp,
+		short dst_port, ssize_t packet_len)
+{
+	memset(udp, 0, sizeof(*udp));
+	udp->source = htons(54321);
+	// Destination port number
+	udp->dest = htons(dst_port);
+	udp->len = htons(packet_len);
+	return udp;
+}
+/*
+struct ether_header *construct_ether(struct ether_header *ether)
+{
+	memcpy(ether->ether_shost, ether_src, sizeof(ether_src));
+	memcpy(ether->ether_dhost, ether_dst, sizeof(ether_dst));
+	ether->ether_type = htons(ETH_P_IP);
+	return ether;
+}
+*/
+
+
 static void usage()
 {
   fprintf( stderr,
@@ -117,7 +184,7 @@ void getargs( int argc, char ** argv )
     usage();
     exit( EXIT_FAILURE );
   }
- 
+  src_addr = get_if_ip(str_devname);
   printf( "CURRENT SETTINGS:\n" );
   printf( "str_devname:       %s\n", str_devname );
   printf( "c_packet_sz:       %d\n", c_packet_sz );
@@ -431,9 +498,13 @@ void *task_fill(void *arg) {
   int first_loop = 1;
   struct tpacket_hdr * ps_header;
   int ec_send = 0;
- 
+  short packet_len;
   printf( "start fill() thread\n");
- 
+  static struct sockaddr_in dst_addr;
+  struct hostent h_dent;
+  memcpy(&h_dent, gethostbyname("9.9.9.1"), sizeof(h_dent));
+  memcpy(&dst_addr.sin_addr, h_dent.h_addr, sizeof(dst_addr));
+  struct sockaddr_in *dest = &dst_addr;
   for(i=1; i <= c_packet_nb; i++)
     {
       int loop = 1;
@@ -447,8 +518,21 @@ void *task_fill(void *arg) {
 	  case TP_STATUS_AVAILABLE:
 	    /* fill data in buffer */
 	    if(first_loop) {
-	      for(j=0;j<c_packet_sz;j++)
-		data[j] = j;
+        char payload[32];
+        sprintf(payload, "hello_%d", i);
+        int len=strlen(payload);
+        struct iphdr *ip = (struct iphdr *) (data);
+        struct udphdr *udp = (struct udphdr *) (((char *) ip) + sizeof(struct iphdr));
+        char *payload_ptr = ((char *) udp) + sizeof(*udp);
+        memcpy(payload_ptr, payload, len);
+        packet_len = (short) len + sizeof (*ip) + sizeof (*udp);
+        //iconstruct_ether(ether);
+        construct_ip(ip, dest, packet_len);
+        construct_udp(udp, dest->sin_port, packet_len - sizeof(struct iphdr));
+	// Calculate the checksum for integrity
+	//ip->check = csum((unsigned short *)ip, packet_len);
+	      //for(j=0;j<c_packet_sz;j++)
+		//data[j] = j;
 	    }
 	    loop = 0;
 	    break;
@@ -472,9 +556,9 @@ void *task_fill(void *arg) {
 	  i_index = 0;
 	  first_loop = 0;
 	}
- 
+      printf("packet_len:%d\n", packet_len); 
       /* update packet len */
-      ps_header->tp_len = c_packet_sz;
+      ps_header->tp_len = packet_len;//c_packet_sz;
       /* set header flag to USER (trigs xmit)*/
       ps_header->tp_status = TP_STATUS_SEND_REQUEST;
  
@@ -518,4 +602,5 @@ void *task_fill(void *arg) {
   printf("end of task fill()\n");
   return (void *) 0ll;
 }
+
 
