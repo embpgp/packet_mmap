@@ -421,7 +421,7 @@ int main( int argc, char ** argv )
   for(i=0; i<c_buffer_nb; i++)
     {
       struct tpacket_hdr * ps_header;
-      ps_header = ((struct tpacket_hdr *)((void *)ps_header_start + (c_buffer_sz*i)));
+      ps_header = ((struct tpacket_hdr *)((char *)ps_header_start + (c_buffer_sz*i)));
       switch((volatile uint32_t)ps_header->tp_status)
 	{
 	case TP_STATUS_SEND_REQUEST:
@@ -496,13 +496,14 @@ void *task_send(void *arg) {
  
 /* This task will fill circular buffer */
 void *task_fill(void *arg) {
-  int i,j;
+  int i;
   int i_index = 0;
   char * data;
-  int first_loop = 1;
+  //int first_loop = 1;
   struct tpacket_hdr * ps_header;
   int ec_send = 0;
   short packet_len;
+  char payload[32];
   printf( "start fill() thread\n");
   static struct sockaddr_in dst_addr;
   struct hostent h_dent;
@@ -515,14 +516,13 @@ void *task_fill(void *arg) {
  
       /* get free buffer */
       do {
-	ps_header = ((struct tpacket_hdr *)((void *)ps_header_start + (c_buffer_sz*i_index)));
+	ps_header = ((struct tpacket_hdr *)((char *)ps_header_start + (c_buffer_sz*i_index)));
 	data = ((void*) ps_header) + data_offset;
 	switch((volatile uint32_t)ps_header->tp_status)
 	  {
 	  case TP_STATUS_AVAILABLE:
 	    /* fill data in buffer */
-        char payload[32];
-        sprintf(payload, "hello_%ld", i);
+        sprintf(payload, "hello_%d", i);
 	//printf("payload:%s, i:%ld\n",payload,i);
         int len=strlen(payload);
 	//    if(first_loop) {
@@ -559,7 +559,7 @@ void *task_fill(void *arg) {
       if(i_index >= c_buffer_nb)
 	{
 	  i_index = 0;
-	  first_loop = 0;
+	  //first_loop = 0;
 	}
       //printf("packet_len:%d\n", packet_len); 
       /* update packet len */
