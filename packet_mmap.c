@@ -507,7 +507,7 @@ void *task_fill(void *arg) {
   static struct sockaddr_in dst_addr;
   struct hostent h_dent;
   memcpy(&h_dent, gethostbyname("9.9.9.1"), sizeof(h_dent));
-  memcpy(&dst_addr.sin_addr, h_dent.h_addr, sizeof(dst_addr));
+  memcpy(&dst_addr.sin_addr, h_dent.h_addr, sizeof(dst_addr.sin_addr));
   struct sockaddr_in *dest = &dst_addr;
   for(i=1; i <= c_packet_nb; i++)
     {
